@@ -1,4 +1,5 @@
 .env
+.env.local
 .venv/
 __pycache__/
 *.py[cod]
@@ -9,3 +10,6 @@ frontend/.next/
 frontend/out/
 frontend/dist/
 frontend/.env.local
+frontend/*.tsbuildinfo
+.vercel/
+frontend/.vercel/

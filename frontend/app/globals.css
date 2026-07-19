@@ -412,6 +412,8 @@ a {
   font-weight: 750;
   line-height: 1.4;
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .live-badge,
@@ -559,6 +561,7 @@ a {
 .trend-body {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   padding: 20px 22px;
 }
 
@@ -592,6 +595,7 @@ a {
   letter-spacing: -0.055em;
   line-height: 1.15;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .trend-summary {
@@ -886,6 +890,11 @@ a {
   font-size: 10px;
   font-weight: 750;
   margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.error-banner > div:nth-child(2) {
+  min-width: 0;
 }
 
 .error-banner button {
@@ -967,6 +976,7 @@ a {
   letter-spacing: -0.07em;
   line-height: 1.08;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .diagnosis-box {
@@ -1038,6 +1048,8 @@ a {
   font-weight: 900;
   gap: 8px;
   min-height: 52px;
+  min-width: 0;
+  overflow-wrap: anywhere;
   padding: 8px 10px;
   text-align: left;
 }
@@ -1068,6 +1080,7 @@ a {
   background: var(--white);
   border: var(--border);
   box-shadow: 5px 5px 0 var(--ink);
+  min-width: 0;
   padding: 15px;
 }
 
@@ -1141,6 +1154,8 @@ a {
   font-size: 12px;
   font-weight: 850;
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .long-copy {
@@ -1148,6 +1163,7 @@ a {
   font-weight: 700;
   line-height: 1.75;
   margin: 0;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
@@ -1157,12 +1173,18 @@ a {
   grid-template-columns: 1fr 1fr;
 }
 
+.prompt-grid > * {
+  min-width: 0;
+}
+
 .prompt-output p {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
   font-weight: 700;
   line-height: 1.65;
   margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .image-output {
@@ -1313,7 +1335,18 @@ a {
     align-items: flex-start;
     flex-direction: column;
     gap: 10px;
-    position: static;
+    top: 36px;
+  }
+
+  .category-tabs {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 2px 3px 5px 2px;
+  }
+
+  .category-tabs button {
+    flex: 0 0 auto;
   }
 
   .scan-count {

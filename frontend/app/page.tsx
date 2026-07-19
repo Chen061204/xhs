@@ -43,6 +43,8 @@ import {
 
 const CATEGORIES = ["今日总榜", "美妆穿搭", "生活方式", "职场成长", "旅行美食"];
 const TREND_CACHE_KEY = "xhs-trending-cache-v2";
+const EMPTY_TRENDS_MESSAGE =
+  "尚未扫描联网热点。首次扫描后，结果会自动保存在当前浏览器。";
 
 const MODEL_OPTIONS: Array<{
   value: DeepSeekModel;
@@ -85,24 +87,42 @@ type TrendCache = {
   results: Record<string, CachedTrendResult>;
 };
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isTrendingItem(value: unknown): value is TrendingItem {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<TrendingItem>;
+  return (
+    typeof item.rank === "number" &&
+    typeof item.title === "string" &&
+    typeof item.metrics === "string" &&
+    typeof item.category === "string" &&
+    typeof item.summary === "string" &&
+    typeof item.heat_reason === "string" &&
+    isStringArray(item.keywords) &&
+    Array.isArray(item.sources) &&
+    item.sources.every(
+      (source) =>
+        source &&
+        typeof source === "object" &&
+        typeof source.title === "string" &&
+        typeof source.url === "string",
+    )
+  );
+}
+
 function isCachedTrendResult(value: unknown): value is CachedTrendResult {
   if (!value || typeof value !== "object") return false;
   const cache = value as Partial<CachedTrendResult>;
   return (
     Array.isArray(cache.items) &&
-    cache.items.every(
-      (item) =>
-        item &&
-        typeof item === "object" &&
-        typeof item.rank === "number" &&
-        typeof item.title === "string" &&
-        typeof item.summary === "string" &&
-        Array.isArray(item.keywords) &&
-        Array.isArray(item.sources),
-    ) &&
+    cache.items.every(isTrendingItem) &&
     typeof cache.date === "string" &&
     typeof cache.disclaimer === "string" &&
-    typeof cache.savedAt === "string"
+    typeof cache.savedAt === "string" &&
+    Number.isFinite(Date.parse(cache.savedAt))
   );
 }
 
@@ -152,9 +172,7 @@ export default function Home() {
   >({});
   const [scanDate, setScanDate] = useState<string | null>(null);
   const [cacheSavedAt, setCacheSavedAt] = useState<string | null>(null);
-  const [disclaimer, setDisclaimer] = useState(
-    "尚未扫描联网热点。首次扫描后，结果会自动保存在当前浏览器。",
-  );
+  const [disclaimer, setDisclaimer] = useState(EMPTY_TRENDS_MESSAGE);
   const [loadingTrends, setLoadingTrends] = useState(false);
   const [analyzingRank, setAnalyzingRank] = useState<number | null>(null);
   const [selectedTrend, setSelectedTrend] = useState<TrendingItem | null>(null);
@@ -269,6 +287,12 @@ export default function Home() {
     setCategory(nextCategory);
     setView("radar");
     setActiveSection("radar");
+    if (!trendCache[nextCategory]) {
+      setTrends([]);
+      setScanDate(null);
+      setCacheSavedAt(null);
+      setDisclaimer(EMPTY_TRENDS_MESSAGE);
+    }
     try {
       const result = await getTrending(apiOptions, 10, nextCategory);
       const savedAt = new Date().toISOString();
@@ -290,9 +314,10 @@ export default function Home() {
   }
 
   function chooseCategory(nextCategory: string) {
-    if (loadingTrends || nextCategory === category) return;
+    if (loadingTrends) return;
     const cached = trendCache[nextCategory];
     if (cached) {
+      if (nextCategory === category) return;
       showCachedResult(nextCategory, cached);
       persistTrendCache(nextCategory, trendCache);
       return;
@@ -313,7 +338,7 @@ export default function Home() {
       setActiveSection("radar");
       setError({
         code: "请先生成拆解",
-        message: "请从热点列表选择一个选题，点击“拆解并生成”后再查看创作物料。",
+        message: "请先从热点列表选择选题并生成拆解",
       });
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
@@ -337,7 +362,11 @@ export default function Home() {
       setActiveDirection(0);
       setView("analysis");
       setActiveSection("diagnosis");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.setTimeout(() => {
+        document
+          .getElementById("workflow-diagnosis")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
     } catch (caught) {
       presentError(caught);
     } finally {
@@ -346,6 +375,7 @@ export default function Home() {
   }
 
   const currentDirection = analysis?.derived_directions[activeDirection];
+  const hasSavedResult = cacheSavedAt !== null;
   const cacheTimeLabel = cacheSavedAt
     ? new Date(cacheSavedAt).toLocaleString("zh-CN", {
         month: "2-digit",
@@ -494,8 +524,8 @@ export default function Home() {
               </section>
 
               <div className="data-notice">
-                <span className={trends.length ? "live-badge" : "ready-badge"}>
-                  {trends.length ? "SAVED" : "READY"}
+                <span className={hasSavedResult ? "live-badge" : "ready-badge"}>
+                  {hasSavedResult ? "SAVED" : "READY"}
                 </span>
                 <p>
                   {cacheTimeLabel ? `已保存“${category}” ${cacheTimeLabel} 的扫描结果。` : ""}
@@ -507,8 +537,12 @@ export default function Home() {
                 {trends.length === 0 ? (
                   <div className="empty-trends">
                     <Radar size={46} strokeWidth={2.6} />
-                    <h3>还没有联网热点</h3>
-                    <p>点击“扫描联网热点”获取真实结果；扫描成功后刷新页面也会保留。</p>
+                    <h3>{hasSavedResult ? "本次扫描暂无热点" : "还没有联网热点"}</h3>
+                    <p>
+                      {hasSavedResult
+                        ? "该分类已完成扫描，但暂时没有返回可用热点。你可以稍后强制刷新。"
+                        : "首次使用请点击“扫描联网热点”；扫描成功后刷新页面也会保留。"}
+                    </p>
                   </div>
                 ) : trends.map((trend, index) => {
                   const poster = POSTER_STYLES[index % POSTER_STYLES.length];
@@ -623,6 +657,7 @@ export default function Home() {
                           key={direction.direction_title}
                           className={activeDirection === index ? "active" : ""}
                           onClick={() => setActiveDirection(index)}
+                          aria-pressed={activeDirection === index}
                         >
                           <span>0{index + 1}</span>
                           {direction.direction_title}
