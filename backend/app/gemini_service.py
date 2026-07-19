@@ -64,23 +64,50 @@ def _validate_model_output(
         )
         raise _map_api_error(exc) from exc
     except Exception as exc:
-        logger.exception("Unexpected error while calling Gemini")
-        raise GeminiServiceError(
-            status_code=502,
-            code="GEMINI_UNAVAILABLE",
-            detail="Gemini 服务暂时不可用，请稍后重试。",
-        ) from exc
+        # Interactions calls in google-genai 2.3+ may raise compatibility
+        # exceptions (for example BadRequestError) that do not inherit from
+        # google.genai.errors.APIError. Map both generations of SDK errors.
+        logger.warning(
+            "Gemini SDK error type=%s status=%s",
+            type(exc).__name__,
+            _get_api_status_code(exc) or None,
+        )
+        raise _map_api_error(exc) from exc
 
 
-def _map_api_error(exc: errors.APIError) -> GeminiServiceError:
-    api_code = int(getattr(exc, "code", 0) or 0)
+def _get_api_status_code(exc: Exception) -> int:
+    for value in (
+        getattr(exc, "code", None),
+        getattr(exc, "status_code", None),
+        getattr(getattr(exc, "response", None), "status_code", None),
+    ):
+        try:
+            if value is not None:
+                return int(value)
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def _map_api_error(exc: Exception) -> GeminiServiceError:
+    api_code = _get_api_status_code(exc)
     api_status = str(getattr(exc, "status", "") or "").upper()
-    api_message = str(getattr(exc, "message", "") or "").lower()
+    api_message = " ".join(
+        str(value)
+        for value in (
+            getattr(exc, "message", ""),
+            getattr(exc, "body", ""),
+            exc,
+        )
+        if value
+    ).lower()
 
     invalid_key = (
         api_code in {401, 403}
         or "api_key_invalid" in api_status.lower()
+        or "api_key_invalid" in api_message
         or "api key not valid" in api_message
+        or "api key invalid" in api_message
     )
     if invalid_key:
         return GeminiServiceError(
@@ -100,10 +127,16 @@ def _map_api_error(exc: errors.APIError) -> GeminiServiceError:
             code="GEMINI_BAD_REQUEST",
             detail="Gemini 拒绝了本次请求，请检查模型权限或输入内容。",
         )
+    if api_code:
+        return GeminiServiceError(
+            status_code=502,
+            code="GEMINI_UPSTREAM_ERROR",
+            detail="Gemini 上游服务异常，请稍后重试。",
+        )
     return GeminiServiceError(
         status_code=502,
-        code="GEMINI_UPSTREAM_ERROR",
-        detail="Gemini 上游服务异常，请稍后重试。",
+        code="GEMINI_UNAVAILABLE",
+        detail="Gemini 服务暂时不可用，请稍后重试。",
     )
 
 
