@@ -1,0 +1,15 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+
+# 测试缓存
+.pytest_cache/
+.coverage
+
+# 虚拟环境
+.venv/
+venv/
+
+# API Key 和本地环境变量
+.env
+backend/.env
