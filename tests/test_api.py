@@ -1,5 +1,6 @@
 import json
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -7,8 +8,8 @@ from pydantic import SecretStr, ValidationError
 
 from backend.app.config import Settings
 from backend.app.dependencies import (
-    get_gemini_client,
-    resolve_gemini_api_key,
+    get_tokenhub_client,
+    resolve_tokenhub_api_key,
 )
 from backend.app.main import app
 from backend.app.schemas import AnalyzeResponse
@@ -40,21 +41,31 @@ TRENDING_OUTPUT = {
         {
             "rank": 9,
             "title": "测试热点",
-            "metrics": "公开数据未披露",
+            "metrics": "多家公开媒体今日集中报道",
             "category": "生活方式",
             "summary": "用于测试的热点摘要",
             "heat_reason": "近期讨论快速增加",
             "keywords": ["热点", "生活方式"],
             "sources": [
                 {
-                    "title": "公开来源",
+                    "title": "模型给出的标题会被后端覆盖",
                     "url": "https://example.com/source",
                 }
             ],
         }
     ],
-    "disclaimer": "公开数据存在延迟，结果仅供内容策划参考。",
+    "disclaimer": "模型免责声明会被后端覆盖。",
 }
+
+TOKENHUB_SEARCH_RESULTS = [
+    {
+        "index": 1,
+        "url": "https://example.com/source",
+        "name": "TokenHub 真实来源",
+        "snippet": "公开网页摘要",
+        "site": "示例站点",
+    }
+]
 
 ANALYZE_OUTPUT = {
     "original_post": {
@@ -66,107 +77,109 @@ ANALYZE_OUTPUT = {
 }
 
 
-class FakeInteraction:
-    def __init__(self, output: dict[str, object]) -> None:
-        self.output_text = json.dumps(output, ensure_ascii=False)
-
-
-class FakeInteractions:
-    def __init__(self, outputs: list[dict[str, object]]) -> None:
-        self.outputs = iter(outputs)
+class FakeTokenHubClient:
+    def __init__(
+        self,
+        outputs: list[dict[str, object]] | None = None,
+        status_code: int = 200,
+        search_results: list[dict[str, object]] | None = None,
+    ) -> None:
+        self.outputs = iter(outputs or [])
+        self.status_code = status_code
+        self.search_results = (
+            TOKENHUB_SEARCH_RESULTS if search_results is None else search_results
+        )
         self.calls: list[dict[str, object]] = []
 
-    def create(self, **kwargs):
-        self.calls.append(kwargs)
-        return FakeInteraction(next(self.outputs))
-
-
-class FakeGeminiClient:
-    def __init__(self, outputs: list[dict[str, object]]) -> None:
-        self.interactions = FakeInteractions(outputs)
-
-
-class FakeNewSdkError(Exception):
-    def __init__(self, status_code: int, message: str) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-        self.message = message
-        self.body = {"error": {"code": status_code, "message": message}}
-
-
-class RaisingInteractions:
-    def __init__(self, error: Exception) -> None:
-        self.error = error
-
-    def create(self, **kwargs):
-        raise self.error
-
-
-class RaisingGeminiClient:
-    def __init__(self, error: Exception) -> None:
-        self.interactions = RaisingInteractions(error)
+    def post(self, path: str, *, json: dict[str, object]) -> httpx.Response:
+        self.calls.append({"path": path, "json": json})
+        if self.status_code >= 400:
+            return httpx.Response(
+                self.status_code,
+                json={"error": {"message": "upstream error"}},
+            )
+        output = next(self.outputs)
+        message: dict[str, object] = {
+            "content": __import__("json").dumps(output, ensure_ascii=False)
+        }
+        if "web_search_options" in json:
+            message["search_results"] = self.search_results
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": message}]},
+        )
 
 
 def test_bearer_key_takes_precedence_over_server_key() -> None:
-    settings = Settings(
-        _env_file=None,
-        gemini_api_key=SecretStr("server-key"),
-    )
-    resolved = resolve_gemini_api_key("Bearer user-key", settings)
-    assert resolved == "user-key"
+    settings = Settings(_env_file=None, tokenhub_api_key=SecretStr("server-key"))
+    assert resolve_tokenhub_api_key("Bearer user-key", settings) == "user-key"
 
 
 def test_server_key_is_used_when_header_is_missing() -> None:
-    settings = Settings(
-        _env_file=None,
-        gemini_api_key=SecretStr("server-key"),
-    )
-    resolved = resolve_gemini_api_key(None, settings)
-    assert resolved == "server-key"
+    settings = Settings(_env_file=None, tokenhub_api_key=SecretStr("server-key"))
+    assert resolve_tokenhub_api_key(None, settings) == "server-key"
 
 
-@pytest.mark.parametrize(
-    "authorization",
-    ["Basic abc", "Bearer", "Bearer   "],
-)
+@pytest.mark.parametrize("authorization", ["Basic abc", "Bearer", "Bearer   "])
 def test_malformed_authorization_is_rejected(authorization: str) -> None:
-    settings = Settings(
-        _env_file=None,
-        gemini_api_key=SecretStr("server-key"),
-    )
+    settings = Settings(_env_file=None, tokenhub_api_key=SecretStr("server-key"))
     with pytest.raises(HTTPException) as exc_info:
-        resolve_gemini_api_key(authorization, settings)
+        resolve_tokenhub_api_key(authorization, settings)
     assert exc_info.value.status_code == 401
 
 
 def test_missing_key_is_rejected() -> None:
-    settings = Settings(_env_file=None, gemini_api_key=None)
+    settings = Settings(_env_file=None, tokenhub_api_key=None)
     with pytest.raises(HTTPException) as exc_info:
-        resolve_gemini_api_key(None, settings)
+        resolve_tokenhub_api_key(None, settings)
     assert exc_info.value.status_code == 401
 
 
-def test_trending_uses_search_grounding_and_normalizes_rank() -> None:
-    fake_client = FakeGeminiClient([TRENDING_OUTPUT])
-    app.dependency_overrides[get_gemini_client] = lambda: fake_client
+def test_trending_enables_tokenhub_search_and_normalizes_sources() -> None:
+    fake_client = FakeTokenHubClient([TRENDING_OUTPUT])
+    app.dependency_overrides[get_tokenhub_client] = lambda: fake_client
     try:
         response = TestClient(app).get(
             "/api/trending?limit=1&category=生活方式",
-            headers={"X-Gemini-Model": "gemini-3.5-flash"},
+            headers={"X-TokenHub-Model": "deepseek-v4-pro-202606"},
         )
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json()["items"][0]["rank"] == 1
-    call = fake_client.interactions.calls[0]
-    assert call["tools"] == [{"type": "google_search"}]
-    assert call["response_format"]["mime_type"] == "application/json"
+    body = response.json()
+    assert body["items"][0]["rank"] == 1
+    assert body["items"][0]["sources"] == [
+        {
+            "title": "TokenHub 真实来源",
+            "url": "https://example.com/source",
+        }
+    ]
+    call = fake_client.calls[0]
+    assert call["path"] == "/chat/completions"
+    assert call["json"]["model"] == "deepseek-v4-pro-202606"
+    assert call["json"]["response_format"] == {"type": "json_object"}
+    assert call["json"]["web_search_options"]["enable"] is True
+    assert call["json"]["web_search_options"]["search_source"] == "lite"
 
 
-def test_analyze_matches_frontend_contract_and_preserves_source_fields() -> None:
-    fake_client = FakeGeminiClient([ANALYZE_OUTPUT])
-    app.dependency_overrides[get_gemini_client] = lambda: fake_client
+def test_unverified_source_url_is_removed() -> None:
+    forged = json.loads(json.dumps(TRENDING_OUTPUT))
+    forged["items"][0]["sources"][0]["url"] = "https://forged.example/fake"
+    fake_client = FakeTokenHubClient([forged])
+    app.dependency_overrides[get_tokenhub_client] = lambda: fake_client
+    try:
+        response = TestClient(app).get("/api/trending?limit=1")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["sources"] == []
+
+
+def test_analyze_matches_contract_and_does_not_enable_web_search() -> None:
+    fake_client = FakeTokenHubClient([ANALYZE_OUTPUT])
+    app.dependency_overrides[get_tokenhub_client] = lambda: fake_client
     try:
         response = TestClient(app).post(
             "/api/analyze",
@@ -192,7 +205,7 @@ def test_analyze_matches_frontend_contract_and_preserves_source_fields() -> None
         "metrics": "点赞 10w+",
     }
     assert len(body["derived_directions"]) == 3
-    assert "tools" not in fake_client.interactions.calls[0]
+    assert "web_search_options" not in fake_client.calls[0]["json"]
 
 
 def test_analyze_response_rejects_extra_fields() -> None:
@@ -202,12 +215,12 @@ def test_analyze_response_rejects_extra_fields() -> None:
 
 
 def test_disallowed_model_returns_structured_error() -> None:
-    fake_client = FakeGeminiClient([TRENDING_OUTPUT])
-    app.dependency_overrides[get_gemini_client] = lambda: fake_client
+    fake_client = FakeTokenHubClient([TRENDING_OUTPUT])
+    app.dependency_overrides[get_tokenhub_client] = lambda: fake_client
     try:
         response = TestClient(app).get(
             "/api/trending",
-            headers={"X-Gemini-Model": "unknown-model"},
+            headers={"X-TokenHub-Model": "unknown-model"},
         )
     finally:
         app.dependency_overrides.clear()
@@ -216,32 +229,29 @@ def test_disallowed_model_returns_structured_error() -> None:
     assert response.json()["error"]["code"] == "MODEL_NOT_ALLOWED"
 
 
-def test_new_sdk_invalid_key_error_is_not_reported_as_unavailable() -> None:
-    fake_client = RaisingGeminiClient(
-        FakeNewSdkError(400, "API key not valid. Please pass a valid API key.")
-    )
-    app.dependency_overrides[get_gemini_client] = lambda: fake_client
+@pytest.mark.parametrize(
+    ("upstream_status", "expected_status", "expected_code"),
+    [
+        (401, 401, "INVALID_TOKENHUB_API_KEY"),
+        (402, 402, "TOKENHUB_INSUFFICIENT_BALANCE"),
+        (429, 429, "TOKENHUB_RATE_LIMITED"),
+        (503, 502, "TOKENHUB_UPSTREAM_ERROR"),
+    ],
+)
+def test_tokenhub_errors_are_mapped(
+    upstream_status: int,
+    expected_status: int,
+    expected_code: str,
+) -> None:
+    fake_client = FakeTokenHubClient(status_code=upstream_status)
+    app.dependency_overrides[get_tokenhub_client] = lambda: fake_client
     try:
         response = TestClient(app).get("/api/trending?limit=1")
     finally:
         app.dependency_overrides.clear()
 
-    assert response.status_code == 401
-    assert response.json()["error"]["code"] == "INVALID_GEMINI_API_KEY"
-
-
-def test_new_sdk_rate_limit_error_is_mapped() -> None:
-    fake_client = RaisingGeminiClient(
-        FakeNewSdkError(429, "RESOURCE_EXHAUSTED: quota exceeded")
-    )
-    app.dependency_overrides[get_gemini_client] = lambda: fake_client
-    try:
-        response = TestClient(app).get("/api/trending?limit=1")
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 429
-    assert response.json()["error"]["code"] == "GEMINI_RATE_LIMITED"
+    assert response.status_code == expected_status
+    assert response.json()["error"]["code"] == expected_code
 
 
 def test_healthcheck_does_not_require_an_api_key() -> None:

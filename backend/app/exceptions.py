@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class GeminiServiceError(Exception):
+class TokenHubServiceError(Exception):
     status_code: int
     code: str
     detail: str

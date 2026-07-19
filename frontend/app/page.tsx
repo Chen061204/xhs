@@ -34,7 +34,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AnalyzeResponse,
   ApiError,
-  GeminiModel,
+  DeepSeekModel,
   TrendingItem,
   analyzeHotspot,
   checkHealth,
@@ -80,13 +80,15 @@ const DEMO_TRENDS: TrendingItem[] = [
 ];
 
 const MODEL_OPTIONS: Array<{
-  value: GeminiModel;
+  value: DeepSeekModel;
   name: string;
   note: string;
 }> = [
-  { value: "gemini-3.5-flash", name: "Gemini 3.5 Flash", note: "推荐" },
-  { value: "gemini-2.5-flash", name: "Gemini 2.5 Flash", note: "极速" },
-  { value: "gemini-2.5-pro", name: "Gemini 2.5 Pro", note: "深度" },
+  {
+    value: "deepseek-v4-pro-202606",
+    name: "DeepSeek V4 Pro 202606",
+    note: "腾讯云",
+  },
 ];
 
 const POSTER_STYLES = [
@@ -121,7 +123,7 @@ export default function Home() {
     process.env.NEXT_PUBLIC_API_BASE_URL ?? "",
   );
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState<GeminiModel>("gemini-3.5-flash");
+  const [model, setModel] = useState<DeepSeekModel>("deepseek-v4-pro-202606");
   const [showKey, setShowKey] = useState(false);
   const [category, setCategory] = useState("今日总榜");
   const [connection, setConnection] = useState<ConnectionState>("idle");
@@ -129,7 +131,7 @@ export default function Home() {
   const [isDemo, setIsDemo] = useState(true);
   const [scanDate, setScanDate] = useState<string | null>(null);
   const [disclaimer, setDisclaimer] = useState(
-    "当前展示演示数据。配置后端地址后，点击“扫描实时热点”获取 Grounding 结果。",
+    "当前展示演示数据。配置后端地址后，点击“扫描联网热点”获取 TokenHub 联网结果。",
   );
   const [loadingTrends, setLoadingTrends] = useState(false);
   const [analyzingRank, setAnalyzingRank] = useState<number | null>(null);
@@ -143,10 +145,10 @@ export default function Home() {
 
   useEffect(() => {
     const storedBase = window.localStorage.getItem("xhs-api-base");
-    const storedKey = window.localStorage.getItem("xhs-gemini-key");
+    const storedKey = window.localStorage.getItem("xhs-tokenhub-key");
     const storedModel = window.localStorage.getItem(
-      "xhs-gemini-model",
-    ) as GeminiModel | null;
+      "xhs-tokenhub-model",
+    ) as DeepSeekModel | null;
 
     if (storedBase) setApiBase(storedBase);
     if (storedKey) setApiKey(storedKey);
@@ -157,8 +159,8 @@ export default function Home() {
 
   useEffect(() => {
     window.localStorage.setItem("xhs-api-base", apiBase);
-    window.localStorage.setItem("xhs-gemini-key", apiKey);
-    window.localStorage.setItem("xhs-gemini-model", model);
+    window.localStorage.setItem("xhs-tokenhub-key", apiKey);
+    window.localStorage.setItem("xhs-tokenhub-model", model);
   }, [apiBase, apiKey, model]);
 
   useEffect(() => {
@@ -233,7 +235,7 @@ export default function Home() {
         <div className="ticker-track">
           <span>LIVE SIGNAL</span>
           <CircleDot size={13} fill="currentColor" />
-          <span>GOOGLE SEARCH GROUNDING</span>
+          <span>TENCENT TOKENHUB WEB SEARCH</span>
           <CircleDot size={13} fill="currentColor" />
           <span>BYOK READY</span>
           <CircleDot size={13} fill="currentColor" />
@@ -335,14 +337,14 @@ export default function Home() {
                 <div>
                   <div className="section-kicker">
                     <TrendingUp size={18} strokeWidth={3} />
-                    REAL-TIME CONTENT SIGNALS
+                    LIVE WEB CONTENT SIGNALS
                   </div>
                   <h2>
                     今日爆款
                     <span>扫描结果</span>
                   </h2>
                   <p>
-                    从实时热度里找切口，把「大家都在聊」变成「只有你能讲」。
+                    搜索最新公开网页，从实时信号中提炼有辨识度的创作方向。
                   </p>
                 </div>
                 <button
@@ -356,7 +358,7 @@ export default function Home() {
                   ) : (
                     <RefreshCw size={20} strokeWidth={3} />
                   )}
-                  {loadingTrends ? "正在联网扫描…" : "扫描实时热点"}
+                  {loadingTrends ? "正在联网搜索…" : "扫描联网热点"}
                 </button>
               </section>
 
@@ -596,7 +598,7 @@ export default function Home() {
                 <select
                   id="model"
                   value={model}
-                  onChange={(event) => setModel(event.target.value as GeminiModel)}
+                  onChange={(event) => setModel(event.target.value as DeepSeekModel)}
                 >
                   {MODEL_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -611,7 +613,7 @@ export default function Home() {
             <div className="field-group">
               <label htmlFor="api-key">
                 <KeyRound size={17} strokeWidth={2.8} />
-                Gemini API Key
+                腾讯云 TokenHub API Key
               </label>
               <div className="secret-input">
                 <input
@@ -656,7 +658,7 @@ export default function Home() {
                 </strong>
                 <p>
                   {connection === "online"
-                    ? "健康检查通过，可以开始扫描"
+                    ? "健康检查通过，可以开始生成"
                     : "状态来自 /api/health"}
                 </p>
               </div>
@@ -673,15 +675,15 @@ export default function Home() {
               ) : (
                 <Radar size={20} strokeWidth={3} />
               )}
-              {loadingTrends ? "扫描进行中" : "启动热点扫描"}
+              {loadingTrends ? "联网搜索中" : "扫描联网热点"}
             </button>
 
             <div className="source-note">
               <div>
                 <CircleDot size={15} fill="currentColor" />
-                SEARCH GROUNDING
+                TOKENHUB WEB SEARCH
               </div>
-              <p>实时搜索结果由 Gemini 综合公开网页生成，具体平台数据以原页面为准。</p>
+              <p>由腾讯云 TokenHub 联网搜索并交给 DeepSeek 分析，来源 URL 会经后端校验。</p>
               {!isDemo && trends[0]?.sources?.[0] && (
                 <a
                   href={trends[0].sources[0].url}

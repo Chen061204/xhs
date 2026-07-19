@@ -10,11 +10,12 @@ class Settings(BaseSettings):
     app_name: str = "Xiaohongshu AI API"
     app_version: str = "1.0.0"
     app_env: str = "production"
-    gemini_api_key: SecretStr | None = None
-    gemini_model: str = "gemini-3.5-flash"
-    gemini_allowed_models: str = (
-        "gemini-3.5-flash,gemini-2.5-flash,gemini-2.5-pro"
-    )
+    tokenhub_api_key: SecretStr | None = None
+    tokenhub_base_url: str = "https://tokenhub.tencentmaas.com/v1"
+    tokenhub_model: str = "deepseek-v4-pro-202606"
+    tokenhub_allowed_models: str = "deepseek-v4-pro-202606"
+    tokenhub_timeout_seconds: float = 90.0
+    tokenhub_search_source: str = "lite"
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
 
     model_config = SettingsConfigDict(
@@ -27,7 +28,7 @@ class Settings(BaseSettings):
     def allowed_models(self) -> set[str]:
         return {
             item.strip()
-            for item in self.gemini_allowed_models.split(",")
+            for item in self.tokenhub_allowed_models.split(",")
             if item.strip()
         }
 
