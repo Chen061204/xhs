@@ -12,7 +12,8 @@ from backend.app.dependencies import (
     resolve_tokenhub_api_key,
 )
 from backend.app.main import app
-from backend.app.schemas import AnalyzeResponse
+from backend.app.prompts import build_analyze_prompt
+from backend.app.schemas import AnalyzeRequest, AnalyzeResponse
 
 
 def make_direction(index: int) -> dict[str, object]:
@@ -206,6 +207,24 @@ def test_analyze_matches_contract_and_does_not_enable_web_search() -> None:
     }
     assert len(body["derived_directions"]) == 3
     assert "web_search_options" not in fake_client.calls[0]["json"]
+    assert fake_client.calls[0]["json"]["reasoning_effort"] == "medium"
+
+
+def test_analyze_prompt_grounds_gemini_prompts_in_copywriting() -> None:
+    prompt = build_analyze_prompt(
+        AnalyzeRequest(
+            title="40℃通勤防晒穿搭",
+            category="职场穿搭",
+            summary="高温地铁通勤时兼顾防晒、透气和职场感",
+        )
+    )
+
+    assert "Gemini 图像生成模型" in prompt
+    assert "Gemini Veo" in prompt
+    assert "核心人物/主体、核心冲突或卖点、关键动作" in prompt
+    assert "同一方向的 copywriting、image_prompt 和 video_prompt 必须讲同一件事" in prompt
+    assert "0-3s 强钩子、3-10s 展示过程/证据" in prompt
+    assert "40℃通勤防晒穿搭" in prompt
 
 
 def test_analyze_response_rejects_extra_fields() -> None:

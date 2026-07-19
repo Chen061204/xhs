@@ -287,6 +287,11 @@ a {
   transform: translate(-1px, -1px);
 }
 
+.category-tabs button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .scan-count {
   align-items: baseline;
   display: flex;
@@ -409,8 +414,8 @@ a {
   margin: 0;
 }
 
-.demo-badge,
-.live-badge {
+.live-badge,
+.ready-badge {
   border: 2px solid var(--ink);
   font-family: "Arial Black", sans-serif;
   font-size: 9px;
@@ -418,7 +423,7 @@ a {
   padding: 4px 6px;
 }
 
-.demo-badge {
+.ready-badge {
   background: var(--yellow);
 }
 
@@ -430,6 +435,39 @@ a {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+.empty-trends {
+  align-items: center;
+  background: var(--white);
+  border: var(--border);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  padding: 52px 24px;
+  text-align: center;
+}
+
+.empty-trends svg {
+  background: var(--yellow);
+  border: 2px solid var(--ink);
+  box-sizing: content-box;
+  padding: 12px;
+}
+
+.empty-trends h3 {
+  font-family: "Arial Black", "PingFang SC", sans-serif;
+  font-size: 22px;
+  margin: 16px 0 6px;
+}
+
+.empty-trends p {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 440px;
 }
 
 .trend-card {
@@ -872,6 +910,10 @@ a {
 /* Analysis */
 .analysis-area {
   max-width: 1180px;
+}
+
+[id^="workflow-"] {
+  scroll-margin-top: 120px;
 }
 
 .back-button {
