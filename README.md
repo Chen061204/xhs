@@ -1,116 +1,102 @@
-# 小红书 AI 起号工具后端
+# 小红书 AI 起号工具
 
-这是一个无状态、纯云端的 FastAPI 服务。模型调用使用 Google Gemini API，
-不依赖 Gemini CLI、本地模型、浏览器自动化或本地数据库。
+纯云端 FastAPI + Next.js 应用。后端通过腾讯云 TokenHub 托管的 DeepSeek V4
+执行联网搜索、趋势整理、热点拆解，并返回前端所需的结构化 JSON。
 
-## 已提供的接口
+## API
 
-### `GET /api/trending`
+- `GET /api/health`：健康检查，不需要 API Key
+- `GET /api/trending`：联网搜索并生成今日小红书热点
+- `POST /api/analyze`：拆解选中热点并生成 3 个衍生方向
+- `GET /docs`：FastAPI 在线接口文档
 
-通过 Gemini Google Search Grounding 获取最近 24–72 小时内适合小红书创作的热点。
+`/api/trending` 会向 TokenHub Chat API 发送 `web_search_options.enable=true`，
+并读取 `choices[0].message.search_results`。后端只保留确实出现在搜索结果中的 URL，
+模型编造或无法对应的来源会被剔除。
 
-查询参数：
+## API Key 规则
 
-- `limit`：返回数量，`1–20`，默认 `10`
-- `category`：可选赛道，例如 `美妆`、`职场`
+每个模型请求按以下顺序选择 Key：
 
-### `POST /api/analyze`
+1. `Authorization: Bearer <用户的腾讯云 TokenHub API Key>`
+2. Vercel 环境变量 `TOKENHUB_API_KEY`
 
-请求体：
+腾讯云 TokenHub Key 与 DeepSeek 官方 Key 不能混用。
+
+前端通过 `X-TokenHub-Model` 选择允许的模型：
+
+- `deepseek-v4-pro-202606`（腾讯云实际服务 ID）
+
+## Vercel 后端部署
+
+从 GitHub 仓库导入后端项目：
+
+- Framework Preset：Other
+- Root Directory：留空
+- Build Command：留空
+- Output Directory：留空
+
+在 Settings → Environment Variables 中设置：
+
+```text
+TOKENHUB_API_KEY=你的腾讯云TokenHubKey
+TOKENHUB_BASE_URL=https://tokenhub.tencentmaas.com/v1
+TOKENHUB_MODEL=deepseek-v4-pro-202606
+TOKENHUB_ALLOWED_MODELS=deepseek-v4-pro-202606
+TOKENHUB_SEARCH_SOURCE=lite
+TOKENHUB_TIMEOUT_SECONDS=90
+CORS_ORIGINS=https://你的前端.vercel.app
+```
+
+需要先在腾讯云 TokenHub 控制台开通 DeepSeek V4，并领取联网搜索资源包或开通后付费。
+
+部署成功后访问：
+
+```text
+https://你的后端.vercel.app/api/health
+```
+
+应返回：
 
 ```json
-{
-  "title": "用户选中的热点标题",
-  "metrics": "点赞 10w+",
-  "category": "生活方式",
-  "summary": "热点摘要",
-  "context": "可选补充信息"
-}
+{"status":"ok","version":"1.0.0"}
 ```
 
-响应严格遵守前端约定的 `original_post`、`ai_diagnosis` 和
-`derived_directions` 结构。服务固定生成 3 个衍生方向，每个方向固定生成 3 个标题。
+## Vercel 前端部署
 
-## 鉴权
+从同一仓库导入另一个前端项目：
 
-每个需要 Gemini 的请求都按以下顺序选择 Key：
+- Framework Preset：Next.js
+- Root Directory：`frontend`
+- 环境变量：
 
-1. `Authorization: Bearer <用户的 Gemini API Key>`
-2. 云端环境变量 `GEMINI_API_KEY`
-3. 两者都没有时返回 `401`
-
-如果请求显式携带了错误格式的 `Authorization`，服务会直接返回 `401`，
-不会静默使用服务器 Key。用户 Key 只用于当前请求，不会写入日志、磁盘或全局缓存。
-
-前端调用示例：
-
-```ts
-const headers = {
-  Authorization: `Bearer ${userGeminiKey}`,
-  "Content-Type": "application/json",
-  "X-Gemini-Model": "gemini-3.5-flash",
-};
-
-const trending = await fetch(
-  `${API_BASE}/api/trending?limit=10`,
-  { headers },
-).then((response) => response.json());
-
-const analysis = await fetch(`${API_BASE}/api/analyze`, {
-  method: "POST",
-  headers,
-  body: JSON.stringify(trending.items[0]),
-}).then((response) => response.json());
+```text
+NEXT_PUBLIC_API_BASE_URL=https://你的后端.vercel.app
 ```
 
-`POST /api/analyze` 会忽略热点卡片中的 `rank`、`keywords`、`sources` 等额外字段，
-因此前端可以直接把选中的热点对象作为请求体。
-项目根目录的 [`frontend-api-client.ts`](frontend-api-client.ts) 已包含完整类型、
-错误处理和两个请求函数，可直接交给前端使用。
-
-## 云端环境变量
-
-复制 [backend/.env.example](backend/.env.example) 中的变量到部署平台的环境变量面板。
-
-- `GEMINI_API_KEY`：可选的服务器回退 Key
-- `GEMINI_MODEL`：默认 `gemini-3.5-flash`
-- `GEMINI_ALLOWED_MODELS`：允许前端通过 `X-Gemini-Model` 选择的模型
-- `CORS_ORIGINS`：逗号分隔的前端域名
-
-生产环境应把 `CORS_ORIGINS` 设置为真实前端域名。若启用服务器回退 Key，
-还应在云平台网关配置限流，避免匿名请求消耗服务器配额。
-
-## 部署
-
-### Vercel
-
-在 Vercel 控制台导入代码仓库并配置上述环境变量即可。根目录
-[`app.py`](app.py) 暴露标准 FastAPI `app`，Vercel Python Runtime 可零配置识别；
-Python 版本由 [`.python-version`](.python-version) 固定为 3.12。
-
-### Zeabur
-
-在 Zeabur 控制台创建 Git 服务、导入代码仓库并配置环境变量。
-[`zbpack.json`](zbpack.json) 已指定 Python 3.12、pip 和 `app.py` 入口。
-服务自动读取平台分配的 `PORT`。
-
-部署完成后可访问：
-
-- `/docs`：Swagger 交互文档
-- `/api/health`：无需 Key 的健康检查
+前端后端地址只填写域名，不要填写 `/api/health`，末尾也不要加 `/`。
 
 ## 错误格式
-
-Gemini 相关错误统一返回：
 
 ```json
 {
   "error": {
-    "code": "INVALID_GEMINI_API_KEY",
-    "message": "Gemini API Key 无效、已过期或没有模型访问权限。"
+    "code": "INVALID_TOKENHUB_API_KEY",
+    "message": "腾讯云 TokenHub API Key 无效、已过期或没有模型访问权限。"
   }
 }
 ```
 
-常见状态码：`400` 参数或模型错误、`401` Key 错误、`429` Gemini 配额限制、
-`502` Gemini 上游或结构化输出异常。
+常见错误码：
+
+- `INVALID_TOKENHUB_API_KEY`
+- `TOKENHUB_INSUFFICIENT_BALANCE`
+- `TOKENHUB_RATE_LIMITED`
+- `TOKENHUB_TIMEOUT`
+- `TOKENHUB_UPSTREAM_ERROR`
+
+## 测试
+
+```bash
+python -m pytest -q
+```

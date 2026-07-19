@@ -7,9 +7,9 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from typing_extensions import Annotated
 
 from .config import Settings, get_settings
-from .dependencies import GeminiClient
-from .exceptions import GeminiServiceError
-from .gemini_service import analyze_hotspot, get_trending
+from .tokenhub_service import analyze_hotspot, get_trending
+from .dependencies import TokenHubClient
+from .exceptions import TokenHubServiceError
 from .schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -37,7 +37,7 @@ app.add_middleware(
     allow_headers=[
         "Authorization",
         "Content-Type",
-        "X-Gemini-Model",
+        "X-TokenHub-Model",
         "X-Request-ID",
     ],
     expose_headers=["X-Request-ID"],
@@ -52,10 +52,10 @@ async def add_request_id(request: Request, call_next):
     return response
 
 
-@app.exception_handler(GeminiServiceError)
-async def handle_gemini_service_error(
+@app.exception_handler(TokenHubServiceError)
+async def handle_deepseek_service_error(
     _request: Request,
-    exc: GeminiServiceError,
+    exc: TokenHubServiceError,
 ) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
@@ -67,9 +67,9 @@ def select_model(
     requested_model: str | None,
     app_settings: Settings = settings,
 ) -> str:
-    model = requested_model.strip() if requested_model else app_settings.gemini_model
+    model = requested_model.strip() if requested_model else app_settings.tokenhub_model
     if model not in app_settings.allowed_models:
-        raise GeminiServiceError(
+        raise TokenHubServiceError(
             status_code=400,
             code="MODEL_NOT_ALLOWED",
             detail=(
@@ -97,12 +97,12 @@ def healthcheck() -> HealthResponse:
     summary="获取今日小红书创作热点",
 )
 def trending(
-    client: GeminiClient,
+    client: TokenHubClient,
     limit: Annotated[int, Query(ge=1, le=20)] = 10,
     category: Annotated[str | None, Query(min_length=1, max_length=30)] = None,
     model_header: Annotated[
         str | None,
-        Header(alias="X-Gemini-Model"),
+        Header(alias="X-TokenHub-Model"),
     ] = None,
 ) -> TrendingResponse:
     return get_trending(
@@ -110,6 +110,7 @@ def trending(
         model=select_model(model_header),
         limit=limit,
         category=category,
+        search_source=settings.tokenhub_search_source,
     )
 
 
@@ -121,10 +122,10 @@ def trending(
 )
 def analyze(
     payload: AnalyzeRequest,
-    client: GeminiClient,
+    client: TokenHubClient,
     model_header: Annotated[
         str | None,
-        Header(alias="X-Gemini-Model"),
+        Header(alias="X-TokenHub-Model"),
     ] = None,
 ) -> AnalyzeResponse:
     return analyze_hotspot(

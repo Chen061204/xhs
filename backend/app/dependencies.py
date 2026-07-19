@@ -1,17 +1,17 @@
 from collections.abc import Generator
 
 from fastapi import Depends, Header, HTTPException, status
-from google import genai
+import httpx
 from typing_extensions import Annotated
 
 from .config import Settings, get_settings
 
 
-def resolve_gemini_api_key(
+def resolve_tokenhub_api_key(
     authorization: Annotated[str | None, Header()] = None,
     settings: Settings = Depends(get_settings),
 ) -> str:
-    """Resolve a Gemini key, preferring ``Authorization: Bearer <key>``.
+    """Resolve a TokenHub key, preferring ``Authorization: Bearer <key>``.
 
     An explicitly supplied but malformed Authorization header is rejected
     instead of silently falling back to the server key.
@@ -26,36 +26,41 @@ def resolve_gemini_api_key(
         ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authorization must use the format: Bearer <Gemini API key>",
+                detail="Authorization must use the format: Bearer <TokenHub API key>",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return token.strip()
 
-    if settings.gemini_api_key is not None:
-        server_key = settings.gemini_api_key.get_secret_value().strip()
+    if settings.tokenhub_api_key is not None:
+        server_key = settings.tokenhub_api_key.get_secret_value().strip()
         if server_key:
             return server_key
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=(
-            "Gemini API key is required. Send Authorization: Bearer <key> "
-            "or configure GEMINI_API_KEY on the server."
+            "Tencent TokenHub API key is required. Send Authorization: Bearer <key> "
+            "or configure TOKENHUB_API_KEY on the server."
         ),
         headers={"WWW-Authenticate": "Bearer"},
     )
 
 
-def get_gemini_client(
-    api_key: Annotated[str, Depends(resolve_gemini_api_key)],
-) -> Generator[genai.Client, None, None]:
-    """Create and close a request-scoped Gemini client for BYOK isolation."""
+def get_tokenhub_client(
+    api_key: Annotated[str, Depends(resolve_tokenhub_api_key)],
+    settings: Settings = Depends(get_settings),
+) -> Generator[httpx.Client, None, None]:
+    """Create and close a request-scoped TokenHub client for BYOK isolation."""
 
-    client = genai.Client(api_key=api_key)
-    try:
+    with httpx.Client(
+        base_url=settings.tokenhub_base_url.rstrip("/"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        timeout=httpx.Timeout(settings.tokenhub_timeout_seconds),
+    ) as client:
         yield client
-    finally:
-        client.close()
 
 
-GeminiClient = Annotated[genai.Client, Depends(get_gemini_client)]
+TokenHubClient = Annotated[httpx.Client, Depends(get_tokenhub_client)]
