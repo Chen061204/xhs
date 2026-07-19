@@ -42,42 +42,7 @@ import {
 } from "@/lib/api";
 
 const CATEGORIES = ["今日总榜", "美妆穿搭", "生活方式", "职场成长", "旅行美食"];
-
-const DEMO_TRENDS: TrendingItem[] = [
-  {
-    rank: 1,
-    title: "赛博国风穿搭正在重新定义东方审美",
-    metrics: "演示数据 · 热度上升",
-    category: "美妆穿搭",
-    summary:
-      "传统纹样、金属配饰与未来感光影正在形成高辨识度视觉语言，适合做穿搭教程与改造内容。",
-    heat_reason: "强视觉反差 + 国风身份认同 + 易于模板化复刻",
-    keywords: ["赛博国风", "新中式", "穿搭改造"],
-    sources: [{ title: "演示来源", url: "https://example.com" }],
-  },
-  {
-    rank: 2,
-    title: "把工位改造成微型疗愈避风港",
-    metrics: "演示数据 · 收藏向",
-    category: "职场成长",
-    summary:
-      "低成本桌面改造、情绪疗愈与打工人身份共鸣叠加，形成兼具实用与情绪价值的内容题材。",
-    heat_reason: "低门槛改造 + 高收藏价值 + 情绪共鸣",
-    keywords: ["工位改造", "打工人", "桌面疗愈"],
-    sources: [{ title: "演示来源", url: "https://example.com" }],
-  },
-  {
-    rank: 3,
-    title: "周末两小时城市微度假指南",
-    metrics: "演示数据 · 搜索向",
-    category: "旅行美食",
-    summary:
-      "不请假、低预算、短半径的城市探索正在替代复杂攻略，适合地图路线和时间轴式内容。",
-    heat_reason: "时间成本低 + 路线可复制 + 本地生活搜索需求",
-    keywords: ["城市漫游", "微度假", "周末去哪儿"],
-    sources: [{ title: "演示来源", url: "https://example.com" }],
-  },
-];
+const TREND_CACHE_KEY = "xhs-trending-cache-v2";
 
 const MODEL_OPTIONS: Array<{
   value: DeepSeekModel;
@@ -100,6 +65,60 @@ const POSTER_STYLES = [
 
 type ConnectionState = "idle" | "checking" | "online" | "offline";
 type ViewState = "radar" | "analysis";
+type WorkflowSection =
+  | "radar"
+  | "diagnosis"
+  | "directions"
+  | "copywriting"
+  | "prompts";
+
+type CachedTrendResult = {
+  items: TrendingItem[];
+  date: string;
+  disclaimer: string;
+  savedAt: string;
+};
+
+type TrendCache = {
+  version: 2;
+  activeCategory: string;
+  results: Record<string, CachedTrendResult>;
+};
+
+function isCachedTrendResult(value: unknown): value is CachedTrendResult {
+  if (!value || typeof value !== "object") return false;
+  const cache = value as Partial<CachedTrendResult>;
+  return (
+    Array.isArray(cache.items) &&
+    cache.items.every(
+      (item) =>
+        item &&
+        typeof item === "object" &&
+        typeof item.rank === "number" &&
+        typeof item.title === "string" &&
+        typeof item.summary === "string" &&
+        Array.isArray(item.keywords) &&
+        Array.isArray(item.sources),
+    ) &&
+    typeof cache.date === "string" &&
+    typeof cache.disclaimer === "string" &&
+    typeof cache.savedAt === "string"
+  );
+}
+
+function isTrendCache(value: unknown): value is TrendCache {
+  if (!value || typeof value !== "object") return false;
+  const cache = value as Partial<TrendCache>;
+  return (
+    cache.version === 2 &&
+    typeof cache.activeCategory === "string" &&
+    Boolean(cache.results) &&
+    typeof cache.results === "object" &&
+    Object.values(
+      cache.results as Record<string, unknown>,
+    ).every(isCachedTrendResult)
+  );
+}
 
 function CopyButton({ text, label = "复制" }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
@@ -127,11 +146,14 @@ export default function Home() {
   const [showKey, setShowKey] = useState(false);
   const [category, setCategory] = useState("今日总榜");
   const [connection, setConnection] = useState<ConnectionState>("idle");
-  const [trends, setTrends] = useState<TrendingItem[]>(DEMO_TRENDS);
-  const [isDemo, setIsDemo] = useState(true);
+  const [trends, setTrends] = useState<TrendingItem[]>([]);
+  const [trendCache, setTrendCache] = useState<
+    Record<string, CachedTrendResult>
+  >({});
   const [scanDate, setScanDate] = useState<string | null>(null);
+  const [cacheSavedAt, setCacheSavedAt] = useState<string | null>(null);
   const [disclaimer, setDisclaimer] = useState(
-    "当前展示演示数据。配置后端地址后，点击“扫描联网热点”获取 TokenHub 联网结果。",
+    "尚未扫描联网热点。首次扫描后，结果会自动保存在当前浏览器。",
   );
   const [loadingTrends, setLoadingTrends] = useState(false);
   const [analyzingRank, setAnalyzingRank] = useState<number | null>(null);
@@ -139,6 +161,8 @@ export default function Home() {
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [activeDirection, setActiveDirection] = useState(0);
   const [view, setView] = useState<ViewState>("radar");
+  const [activeSection, setActiveSection] =
+    useState<WorkflowSection>("radar");
   const [error, setError] = useState<{ code: string; message: string } | null>(
     null,
   );
@@ -149,11 +173,35 @@ export default function Home() {
     const storedModel = window.localStorage.getItem(
       "xhs-tokenhub-model",
     ) as DeepSeekModel | null;
+    const storedTrends = window.localStorage.getItem(TREND_CACHE_KEY);
 
     if (storedBase) setApiBase(storedBase);
     if (storedKey) setApiKey(storedKey);
     if (storedModel && MODEL_OPTIONS.some((item) => item.value === storedModel)) {
       setModel(storedModel);
+    }
+    if (storedTrends) {
+      try {
+        const cache: unknown = JSON.parse(storedTrends);
+        if (isTrendCache(cache)) {
+          const activeCategory = CATEGORIES.includes(cache.activeCategory)
+            ? cache.activeCategory
+            : "今日总榜";
+          const activeResult = cache.results[activeCategory];
+          setTrendCache(cache.results);
+          setCategory(activeCategory);
+          if (activeResult) {
+            setTrends(activeResult.items);
+            setScanDate(activeResult.date);
+            setDisclaimer(activeResult.disclaimer);
+            setCacheSavedAt(activeResult.savedAt);
+          }
+        } else {
+          window.localStorage.removeItem(TREND_CACHE_KEY);
+        }
+      } catch {
+        window.localStorage.removeItem(TREND_CACHE_KEY);
+      }
     }
   }, []);
 
@@ -193,21 +241,90 @@ export default function Home() {
     }
   }
 
-  async function scanTrends() {
+  function showCachedResult(nextCategory: string, result: CachedTrendResult) {
+    setCategory(nextCategory);
+    setTrends(result.items);
+    setScanDate(result.date);
+    setDisclaimer(result.disclaimer);
+    setCacheSavedAt(result.savedAt);
+    setView("radar");
+    setActiveSection("radar");
+  }
+
+  function persistTrendCache(
+    activeCategory: string,
+    results: Record<string, CachedTrendResult>,
+  ) {
+    const cache: TrendCache = { version: 2, activeCategory, results };
+    try {
+      window.localStorage.setItem(TREND_CACHE_KEY, JSON.stringify(cache));
+    } catch {
+      // A storage quota/privacy error must not discard successful live data.
+    }
+  }
+
+  async function scanTrends(nextCategory = category) {
     setError(null);
     setLoadingTrends(true);
+    setCategory(nextCategory);
+    setView("radar");
+    setActiveSection("radar");
     try {
-      const result = await getTrending(apiOptions, 10, category);
-      setTrends(result.items);
-      setScanDate(result.date);
-      setDisclaimer(result.disclaimer);
-      setIsDemo(false);
-      setView("radar");
+      const result = await getTrending(apiOptions, 10, nextCategory);
+      const savedAt = new Date().toISOString();
+      const cachedResult: CachedTrendResult = {
+        items: result.items,
+        date: result.date,
+        disclaimer: result.disclaimer,
+        savedAt,
+      };
+      const nextCache = { ...trendCache, [nextCategory]: cachedResult };
+      setTrendCache(nextCache);
+      showCachedResult(nextCategory, cachedResult);
+      persistTrendCache(nextCategory, nextCache);
     } catch (caught) {
       presentError(caught);
     } finally {
       setLoadingTrends(false);
     }
+  }
+
+  function chooseCategory(nextCategory: string) {
+    if (loadingTrends || nextCategory === category) return;
+    const cached = trendCache[nextCategory];
+    if (cached) {
+      showCachedResult(nextCategory, cached);
+      persistTrendCache(nextCategory, trendCache);
+      return;
+    }
+    void scanTrends(nextCategory);
+  }
+
+  function goToWorkflowSection(section: WorkflowSection) {
+    setError(null);
+    if (section === "radar") {
+      setView("radar");
+      setActiveSection("radar");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    if (!analysis || !selectedTrend) {
+      setView("radar");
+      setActiveSection("radar");
+      setError({
+        code: "请先生成拆解",
+        message: "请从热点列表选择一个选题，点击“拆解并生成”后再查看创作物料。",
+      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    setView("analysis");
+    setActiveSection(section);
+    window.setTimeout(() => {
+      document
+        .getElementById(`workflow-${section}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   }
 
   async function runAnalysis(trend: TrendingItem) {
@@ -219,6 +336,7 @@ export default function Home() {
       setAnalysis(result);
       setActiveDirection(0);
       setView("analysis");
+      setActiveSection("diagnosis");
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (caught) {
       presentError(caught);
@@ -228,6 +346,14 @@ export default function Home() {
   }
 
   const currentDirection = analysis?.derived_directions[activeDirection];
+  const cacheTimeLabel = cacheSavedAt
+    ? new Date(cacheSavedAt).toLocaleString("zh-CN", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
 
   return (
     <div className="site-frame">
@@ -261,27 +387,27 @@ export default function Home() {
 
           <nav className="steps" aria-label="创作工作流">
             {[
-              { n: "01", label: "今日爆款雷达", icon: Radar, active: view === "radar" },
-              { n: "02", label: "爆款深度拆解", icon: Search, active: view === "analysis" },
-              { n: "03", label: "生成衍生选题", icon: Sparkles, active: view === "analysis" },
-              { n: "04", label: "一键生成文案", icon: FileText, active: view === "analysis" },
-              { n: "05", label: "多模态提示词", icon: Video, active: view === "analysis" },
+              { n: "01", label: "今日爆款雷达", icon: Radar, section: "radar" },
+              { n: "02", label: "爆款深度拆解", icon: Search, section: "diagnosis" },
+              { n: "03", label: "生成衍生选题", icon: Sparkles, section: "directions" },
+              { n: "04", label: "一键生成文案", icon: FileText, section: "copywriting" },
+              { n: "05", label: "多模态提示词", icon: Video, section: "prompts" },
             ].map((step) => {
               const Icon = step.icon;
+              const section = step.section as WorkflowSection;
+              const active = activeSection === section;
               return (
                 <button
                   key={step.n}
                   type="button"
-                  className={`step ${step.active ? "step-active" : ""}`}
-                  onClick={() => {
-                    if (step.n === "01") setView("radar");
-                    if (analysis && step.n !== "01") setView("analysis");
-                  }}
+                  className={`step ${active ? "step-active" : ""}`}
+                  onClick={() => goToWorkflowSection(section)}
+                  aria-current={active ? "step" : undefined}
                 >
                   <span className="step-number">{step.n}</span>
                   <Icon size={19} strokeWidth={2.8} />
                   <span>{step.label}</span>
-                  {step.active && <ArrowRight className="step-arrow" size={17} />}
+                  {active && <ArrowRight className="step-arrow" size={17} />}
                 </button>
               );
             })}
@@ -304,9 +430,14 @@ export default function Home() {
                   type="button"
                   key={item}
                   className={category === item ? "category-active" : ""}
-                  onClick={() => setCategory(item)}
+                  onClick={() => chooseCategory(item)}
+                  disabled={loadingTrends}
+                  aria-pressed={category === item}
                 >
                   {item === "今日总榜" && <Flame size={16} fill="currentColor" />}
+                  {loadingTrends && category === item ? (
+                    <LoaderCircle className="spin" size={15} />
+                  ) : null}
                   {item}
                 </button>
               ))}
@@ -350,7 +481,7 @@ export default function Home() {
                 <button
                   className="primary-action"
                   type="button"
-                  onClick={scanTrends}
+                  onClick={() => scanTrends()}
                   disabled={loadingTrends}
                 >
                   {loadingTrends ? (
@@ -363,14 +494,23 @@ export default function Home() {
               </section>
 
               <div className="data-notice">
-                <span className={isDemo ? "demo-badge" : "live-badge"}>
-                  {isDemo ? "DEMO" : "LIVE"}
+                <span className={trends.length ? "live-badge" : "ready-badge"}>
+                  {trends.length ? "SAVED" : "READY"}
                 </span>
-                <p>{disclaimer}</p>
+                <p>
+                  {cacheTimeLabel ? `已保存“${category}” ${cacheTimeLabel} 的扫描结果。` : ""}
+                  {disclaimer}
+                </p>
               </div>
 
               <section className="trend-list" aria-label="热点列表">
-                {trends.map((trend, index) => {
+                {trends.length === 0 ? (
+                  <div className="empty-trends">
+                    <Radar size={46} strokeWidth={2.6} />
+                    <h3>还没有联网热点</h3>
+                    <p>点击“扫描联网热点”获取真实结果；扫描成功后刷新页面也会保留。</p>
+                  </div>
+                ) : trends.map((trend, index) => {
                   const poster = POSTER_STYLES[index % POSTER_STYLES.length];
                   return (
                     <article className="trend-card" key={`${trend.rank}-${trend.title}`}>
@@ -440,7 +580,7 @@ export default function Home() {
               <button
                 type="button"
                 className="back-button"
-                onClick={() => setView("radar")}
+                onClick={() => goToWorkflowSection("radar")}
               >
                 <ArrowLeft size={18} strokeWidth={3} />
                 返回热点雷达
@@ -448,7 +588,7 @@ export default function Home() {
 
               {analysis && selectedTrend ? (
                 <>
-                  <section className="analysis-hero">
+                  <section className="analysis-hero" id="workflow-diagnosis">
                     <div className="analysis-index">DIAGNOSIS / 01</div>
                     <div className="analysis-title-row">
                       <div>
@@ -468,7 +608,7 @@ export default function Home() {
                     </div>
                   </section>
 
-                  <section className="direction-section">
+                  <section className="direction-section" id="workflow-directions">
                     <div className="direction-heading">
                       <div>
                         <p className="eyebrow">DERIVED DIRECTIONS</p>
@@ -514,7 +654,10 @@ export default function Home() {
                           </ol>
                         </section>
 
-                        <section className="output-block copy-output">
+                        <section
+                          className="output-block copy-output"
+                          id="workflow-copywriting"
+                        >
                           <div className="output-heading">
                             <div>
                               <FileText size={20} strokeWidth={3} />
@@ -525,12 +668,12 @@ export default function Home() {
                           <p className="long-copy">{currentDirection.copywriting}</p>
                         </section>
 
-                        <div className="prompt-grid">
+                        <div className="prompt-grid" id="workflow-prompts">
                           <section className="output-block prompt-output image-output">
                             <div className="output-heading">
                               <div>
                                 <ImageIcon size={20} strokeWidth={3} />
-                                <h4>IMAGE PROMPT</h4>
+                                <h4>GEMINI IMAGE PROMPT</h4>
                               </div>
                               <CopyButton text={currentDirection.image_prompt} />
                             </div>
@@ -541,7 +684,7 @@ export default function Home() {
                             <div className="output-heading">
                               <div>
                                 <Video size={20} strokeWidth={3} />
-                                <h4>VIDEO PROMPT</h4>
+                              <h4>GEMINI VEO PROMPT</h4>
                               </div>
                               <CopyButton text={currentDirection.video_prompt} />
                             </div>
@@ -667,7 +810,7 @@ export default function Home() {
             <button
               className="settings-scan-button"
               type="button"
-              onClick={scanTrends}
+              onClick={() => scanTrends()}
               disabled={loadingTrends}
             >
               {loadingTrends ? (
@@ -684,7 +827,7 @@ export default function Home() {
                 TOKENHUB WEB SEARCH
               </div>
               <p>由腾讯云 TokenHub 联网搜索并交给 DeepSeek 分析，来源 URL 会经后端校验。</p>
-              {!isDemo && trends[0]?.sources?.[0] && (
+              {trends[0]?.sources?.[0] && (
                 <a
                   href={trends[0].sources[0].url}
                   target="_blank"

@@ -44,10 +44,10 @@ class DerivedDirection(StrictSchema):
         description="包含自然话题标签的小红书正文模板"
     )
     image_prompt: NonEmptyText = Field(
-        description="适用于 Imagen 或 Midjourney 的英文图片提示词"
+        description="与本方向正文视觉锚点一致、可直接用于 Gemini 图像生成的英文提示词"
     )
     video_prompt: NonEmptyText = Field(
-        description="包含镜头运动信息的英文 Veo 视频提示词"
+        description="与本方向正文叙事一致、包含 15 秒分镜的英文 Gemini Veo 提示词"
     )
 
 
