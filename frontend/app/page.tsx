@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Archive,
   ArrowLeft,
   ArrowRight,
   Check,
@@ -44,6 +45,8 @@ import {
 const CATEGORIES = ["今日总榜", "美妆穿搭", "生活方式", "职场成长", "旅行美食"];
 const TREND_CACHE_KEY = "xhs-trending-cache-v2";
 const ANALYSIS_CACHE_KEY = "xhs-analysis-cache-v1";
+const ANALYSIS_LIBRARY_KEY = "xhs-analysis-library-v1";
+const MAX_SAVED_ANALYSES = 20;
 const EMPTY_TRENDS_MESSAGE =
   "尚未扫描联网热点。首次扫描后，结果会自动保存在当前浏览器。";
 
@@ -67,13 +70,14 @@ const POSTER_STYLES = [
 ];
 
 type ConnectionState = "idle" | "checking" | "online" | "offline";
-type ViewState = "radar" | "analysis";
+type ViewState = "radar" | "analysis" | "library";
 type WorkflowSection =
   | "radar"
   | "diagnosis"
   | "directions"
   | "copywriting"
   | "prompts";
+type NavigationSection = WorkflowSection | "library";
 
 type CachedTrendResult = {
   items: TrendingItem[];
@@ -94,8 +98,20 @@ type AnalysisCache = {
   analysis: AnalyzeResponse;
   activeDirection: number;
   view: ViewState;
-  activeSection: WorkflowSection;
+  activeSection: NavigationSection;
   savedAt: string;
+};
+
+type AnalysisRecord = {
+  id: string;
+  selectedTrend: TrendingItem;
+  analysis: AnalyzeResponse;
+  savedAt: string;
+};
+
+type AnalysisLibraryCache = {
+  version: 1;
+  items: AnalysisRecord[];
 };
 
 function isStringArray(value: unknown): value is string[] {
@@ -177,6 +193,33 @@ function isAnalyzeResponse(value: unknown): value is AnalyzeResponse {
   );
 }
 
+function createAnalysisRecordId(trend: TrendingItem): string {
+  return `${trend.category}\u0000${trend.title}`;
+}
+
+function isAnalysisRecord(value: unknown): value is AnalysisRecord {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<AnalysisRecord>;
+  return (
+    typeof record.id === "string" &&
+    isTrendingItem(record.selectedTrend) &&
+    isAnalyzeResponse(record.analysis) &&
+    typeof record.savedAt === "string" &&
+    Number.isFinite(Date.parse(record.savedAt))
+  );
+}
+
+function isAnalysisLibraryCache(value: unknown): value is AnalysisLibraryCache {
+  if (!value || typeof value !== "object") return false;
+  const cache = value as Partial<AnalysisLibraryCache>;
+  return (
+    cache.version === 1 &&
+    Array.isArray(cache.items) &&
+    cache.items.length <= MAX_SAVED_ANALYSES &&
+    cache.items.every(isAnalysisRecord)
+  );
+}
+
 function isAnalysisCache(value: unknown): value is AnalysisCache {
   if (!value || typeof value !== "object") return false;
   const cache = value as Partial<AnalysisCache>;
@@ -185,7 +228,8 @@ function isAnalysisCache(value: unknown): value is AnalysisCache {
     cache.activeSection === "diagnosis" ||
     cache.activeSection === "directions" ||
     cache.activeSection === "copywriting" ||
-    cache.activeSection === "prompts";
+    cache.activeSection === "prompts" ||
+    cache.activeSection === "library";
   return (
     cache.version === 1 &&
     isTrendingItem(cache.selectedTrend) &&
@@ -193,7 +237,9 @@ function isAnalysisCache(value: unknown): value is AnalysisCache {
     Number.isInteger(cache.activeDirection) &&
     Number(cache.activeDirection) >= 0 &&
     Number(cache.activeDirection) < 3 &&
-    (cache.view === "radar" || cache.view === "analysis") &&
+    (cache.view === "radar" ||
+      cache.view === "analysis" ||
+      cache.view === "library") &&
     validSection &&
     typeof cache.savedAt === "string" &&
     Number.isFinite(Date.parse(cache.savedAt))
@@ -238,10 +284,11 @@ export default function Home() {
   const [selectedTrend, setSelectedTrend] = useState<TrendingItem | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [analysisSavedAt, setAnalysisSavedAt] = useState<string | null>(null);
+  const [analysisLibrary, setAnalysisLibrary] = useState<AnalysisRecord[]>([]);
   const [activeDirection, setActiveDirection] = useState(0);
   const [view, setView] = useState<ViewState>("radar");
   const [activeSection, setActiveSection] =
-    useState<WorkflowSection>("radar");
+    useState<NavigationSection>("radar");
   const [error, setError] = useState<{ code: string; message: string } | null>(
     null,
   );
@@ -255,6 +302,8 @@ export default function Home() {
     ) as DeepSeekModel | null;
     const storedTrends = window.localStorage.getItem(TREND_CACHE_KEY);
     const storedAnalysis = window.localStorage.getItem(ANALYSIS_CACHE_KEY);
+    const storedLibrary = window.localStorage.getItem(ANALYSIS_LIBRARY_KEY);
+    let restoredAnalysis: AnalysisCache | null = null;
 
     if (storedBase) setApiBase(storedBase);
     if (storedKey) setApiKey(storedKey);
@@ -288,6 +337,7 @@ export default function Home() {
       try {
         const cache: unknown = JSON.parse(storedAnalysis);
         if (isAnalysisCache(cache)) {
+          restoredAnalysis = cache;
           setSelectedTrend(cache.selectedTrend);
           setAnalysis(cache.analysis);
           setAnalysisSavedAt(cache.savedAt);
@@ -301,6 +351,42 @@ export default function Home() {
         window.localStorage.removeItem(ANALYSIS_CACHE_KEY);
       }
     }
+    let restoredLibrary: AnalysisRecord[] = [];
+    if (storedLibrary) {
+      try {
+        const cache: unknown = JSON.parse(storedLibrary);
+        if (isAnalysisLibraryCache(cache)) {
+          restoredLibrary = cache.items;
+        } else {
+          window.localStorage.removeItem(ANALYSIS_LIBRARY_KEY);
+        }
+      } catch {
+        window.localStorage.removeItem(ANALYSIS_LIBRARY_KEY);
+      }
+    }
+    if (restoredAnalysis) {
+      const restoredId = createAnalysisRecordId(restoredAnalysis.selectedTrend);
+      if (!restoredLibrary.some((record) => record.id === restoredId)) {
+        restoredLibrary = [
+          {
+            id: restoredId,
+            selectedTrend: restoredAnalysis.selectedTrend,
+            analysis: restoredAnalysis.analysis,
+            savedAt: restoredAnalysis.savedAt,
+          },
+          ...restoredLibrary,
+        ].slice(0, MAX_SAVED_ANALYSES);
+        try {
+          window.localStorage.setItem(
+            ANALYSIS_LIBRARY_KEY,
+            JSON.stringify({ version: 1, items: restoredLibrary }),
+          );
+        } catch {
+          // The current analysis remains available even if migration cannot persist.
+        }
+      }
+    }
+    setAnalysisLibrary(restoredLibrary);
     setStorageReady(true);
   }, []);
 
@@ -395,6 +481,15 @@ export default function Home() {
     }
   }
 
+  function persistAnalysisLibrary(items: AnalysisRecord[]) {
+    const cache: AnalysisLibraryCache = { version: 1, items };
+    try {
+      window.localStorage.setItem(ANALYSIS_LIBRARY_KEY, JSON.stringify(cache));
+    } catch {
+      // Keep the in-memory library usable when browser storage is unavailable.
+    }
+  }
+
   async function scanTrends(nextCategory = category) {
     setError(null);
     setLoadingTrends(true);
@@ -466,18 +561,53 @@ export default function Home() {
     }, 50);
   }
 
+  function openAnalysisLibrary() {
+    setError(null);
+    setView("library");
+    setActiveSection("library");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function openSavedAnalysis(record: AnalysisRecord) {
+    setSelectedTrend(record.selectedTrend);
+    setAnalysis(record.analysis);
+    setAnalysisSavedAt(record.savedAt);
+    setActiveDirection(0);
+    setView("analysis");
+    setActiveSection("diagnosis");
+    window.setTimeout(() => {
+      document
+        .getElementById("workflow-diagnosis")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+
   async function runAnalysis(trend: TrendingItem) {
     setError(null);
     setAnalyzingRank(trend.rank);
     try {
       const result = await analyzeHotspot(apiOptions, trend);
       const savedAt = new Date().toISOString();
+      const savedRecord: AnalysisRecord = {
+        id: createAnalysisRecordId(trend),
+        selectedTrend: trend,
+        analysis: result,
+        savedAt,
+      };
       setSelectedTrend(trend);
       setAnalysis(result);
       setAnalysisSavedAt(savedAt);
       setActiveDirection(0);
       setView("analysis");
       setActiveSection("diagnosis");
+      setAnalysisLibrary((records) => {
+        const nextRecords = [
+          savedRecord,
+          ...records.filter((record) => record.id !== savedRecord.id),
+        ].slice(0, MAX_SAVED_ANALYSES);
+        persistAnalysisLibrary(nextRecords);
+        return nextRecords;
+      });
       window.setTimeout(() => {
         document
           .getElementById("workflow-diagnosis")
@@ -566,6 +696,17 @@ export default function Home() {
               );
             })}
           </nav>
+
+          <button
+            type="button"
+            className={`library-nav-button ${activeSection === "library" ? "active" : ""}`}
+            onClick={openAnalysisLibrary}
+            aria-current={activeSection === "library" ? "page" : undefined}
+          >
+            <Archive size={19} strokeWidth={2.8} />
+            <span>已解析内容</span>
+            <strong>{analysisLibrary.length.toString().padStart(2, "0")}</strong>
+          </button>
 
           <div className="sidebar-note">
             <ShieldCheck size={24} strokeWidth={2.8} />
@@ -732,6 +873,61 @@ export default function Home() {
                   );
                 })}
               </section>
+            </div>
+          ) : view === "library" ? (
+            <div className="content-area saved-library-area">
+              <section className="library-heading">
+                <div>
+                  <div className="section-kicker">
+                    <Archive size={18} strokeWidth={3} />
+                    LOCAL ANALYSIS ARCHIVE
+                  </div>
+                  <h2>已解析内容库</h2>
+                  <p>拆解结果保存在当前浏览器，重新打开不会消耗模型额度。</p>
+                </div>
+                <span className="library-total">
+                  {analysisLibrary.length.toString().padStart(2, "0")} SAVED
+                </span>
+              </section>
+
+              {analysisLibrary.length === 0 ? (
+                <div className="empty-trends saved-library-empty">
+                  <Archive size={46} strokeWidth={2.6} />
+                  <h3>还没有已解析内容</h3>
+                  <p>从热点雷达点击“拆解并生成”，结果会自动进入这里。</p>
+                </div>
+              ) : (
+                <section className="saved-analysis-grid" aria-label="已解析内容列表">
+                  {analysisLibrary.map((record) => (
+                    <article className="saved-analysis-card" key={record.id}>
+                      <div className="saved-analysis-meta">
+                        <span>{record.selectedTrend.category}</span>
+                        <time dateTime={record.savedAt}>
+                          {new Date(record.savedAt).toLocaleString("zh-CN", {
+                            month: "2-digit",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </time>
+                      </div>
+                      <h3>{record.analysis.original_post.title}</h3>
+                      <p>{record.analysis.ai_diagnosis}</p>
+                      <div className="saved-direction-list">
+                        {record.analysis.derived_directions.map((direction, index) => (
+                          <span key={direction.direction_title}>
+                            0{index + 1} {direction.direction_title}
+                          </span>
+                        ))}
+                      </div>
+                      <button type="button" onClick={() => openSavedAnalysis(record)}>
+                        打开完整拆解
+                        <ArrowRight size={17} strokeWidth={3} />
+                      </button>
+                    </article>
+                  ))}
+                </section>
+              )}
             </div>
           ) : (
             <div className="content-area analysis-area">

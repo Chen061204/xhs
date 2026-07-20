@@ -28,7 +28,7 @@ def _validate_model_output(
     response_model: type[SchemaT],
     enable_web_search: bool = False,
     search_source: str = "lite",
-    reasoning_effort: str = "low",
+    enable_thinking: bool = False,
 ) -> tuple[SchemaT, list[dict[str, object]]]:
     schema_json = json.dumps(
         response_model.model_json_schema(),
@@ -56,7 +56,7 @@ def _validate_model_output(
         "response_format": {"type": "json_object"},
         "stream": False,
         "max_tokens": 8192,
-        "reasoning_effort": reasoning_effort,
+        "thinking": {"type": "enabled" if enable_thinking else "disabled"},
     }
     if enable_web_search:
         request["web_search_options"] = {
@@ -230,7 +230,7 @@ def analyze_hotspot(
         model=model,
         prompt=build_analyze_prompt(payload),
         response_model=AnalyzeResponse,
-        reasoning_effort="medium",
+        enable_thinking=True,
     )
 
     result.original_post.title = payload.title

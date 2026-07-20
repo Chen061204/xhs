@@ -13,7 +13,8 @@ class Settings(BaseSettings):
     tokenhub_api_key: SecretStr | None = None
     tokenhub_base_url: str = "https://tokenhub.tencentmaas.com/v1"
     tokenhub_model: str = "deepseek-v4-pro-202606"
-    tokenhub_allowed_models: str = "deepseek-v4-pro-202606"
+    tokenhub_search_model: str = "deepseek-v4-pro"
+    tokenhub_allowed_models: str = "deepseek-v4-pro-202606,deepseek-v4-pro"
     tokenhub_timeout_seconds: float = 90.0
     tokenhub_search_source: str = "lite"
     cors_origins: str = "http://localhost:3000,http://localhost:5173"

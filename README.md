@@ -42,11 +42,15 @@
 TOKENHUB_API_KEY=你的腾讯云TokenHubKey
 TOKENHUB_BASE_URL=https://tokenhub.tencentmaas.com/v1
 TOKENHUB_MODEL=deepseek-v4-pro-202606
-TOKENHUB_ALLOWED_MODELS=deepseek-v4-pro-202606
+TOKENHUB_SEARCH_MODEL=deepseek-v4-pro
+TOKENHUB_ALLOWED_MODELS=deepseek-v4-pro-202606,deepseek-v4-pro
 TOKENHUB_SEARCH_SOURCE=lite
 TOKENHUB_TIMEOUT_SECONDS=90
 CORS_ORIGINS=https://你的前端.vercel.app
 ```
+
+热点扫描固定使用支持联网搜索的 `TOKENHUB_SEARCH_MODEL`；拆解与文案生成使用
+`TOKENHUB_MODEL`，并通过 DeepSeek 官方 `thinking.type=enabled` 开启思考能力。
 
 需要先在腾讯云 TokenHub 控制台开通 DeepSeek V4，并领取联网搜索资源包或开通后付费。
 

@@ -158,8 +158,9 @@ def test_trending_enables_tokenhub_search_and_normalizes_sources() -> None:
     ]
     call = fake_client.calls[0]
     assert call["path"] == "/chat/completions"
-    assert call["json"]["model"] == "deepseek-v4-pro-202606"
+    assert call["json"]["model"] == "deepseek-v4-pro"
     assert call["json"]["response_format"] == {"type": "json_object"}
+    assert call["json"]["thinking"] == {"type": "disabled"}
     assert call["json"]["web_search_options"]["enable"] is True
     assert call["json"]["web_search_options"]["search_source"] == "lite"
 
@@ -207,7 +208,9 @@ def test_analyze_matches_contract_and_does_not_enable_web_search() -> None:
     }
     assert len(body["derived_directions"]) == 3
     assert "web_search_options" not in fake_client.calls[0]["json"]
-    assert fake_client.calls[0]["json"]["reasoning_effort"] == "medium"
+    assert fake_client.calls[0]["json"]["model"] == "deepseek-v4-pro-202606"
+    assert fake_client.calls[0]["json"]["thinking"] == {"type": "enabled"}
+    assert "reasoning_effort" not in fake_client.calls[0]["json"]
 
 
 def test_analyze_prompt_grounds_gemini_prompts_in_copywriting() -> None:

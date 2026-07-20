@@ -105,9 +105,11 @@ def trending(
         Header(alias="X-TokenHub-Model"),
     ] = None,
 ) -> TrendingResponse:
+    if model_header is not None:
+        select_model(model_header)
     return get_trending(
         client=client,
-        model=select_model(model_header),
+        model=settings.tokenhub_search_model,
         limit=limit,
         category=category,
         search_source=settings.tokenhub_search_source,
