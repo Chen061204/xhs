@@ -51,6 +51,43 @@ button:disabled {
   opacity: 0.62;
 }
 
+button:active,
+.step:active,
+.library-nav-button:active,
+.category-tabs button:active,
+.saved-analysis-card > button:active {
+  box-shadow: 1px 1px 0 var(--ink) !important;
+  transform: translate(3px, 3px) !important;
+}
+
+.field-group > input:focus,
+.secret-input:focus-within,
+.select-wrap:focus-within {
+  border-color: var(--ink);
+  box-shadow: 4px 4px 0 var(--ink) !important;
+  transform: translate(-2px, -2px);
+}
+
+::-webkit-scrollbar {
+  height: 14px;
+  width: 14px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--paper);
+  border-left: 2px solid var(--ink);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ink);
+  border: 2px solid var(--paper);
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--pink);
+}
+
 a {
   color: inherit;
 }
@@ -71,6 +108,8 @@ a {
   justify-content: space-between;
   left: 0;
   letter-spacing: 0.14em;
+  margin: 0 auto;
+  max-width: 1600px;
   overflow: hidden;
   padding: 0 18px;
   position: fixed;
@@ -81,9 +120,21 @@ a {
 
 .ticker-track {
   align-items: center;
+  animation: marquee 20s linear infinite;
   display: flex;
   gap: 18px;
+  padding-right: 18px;
   white-space: nowrap;
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(-50%);
+  }
 }
 
 .ticker-track svg {
@@ -101,6 +152,8 @@ a {
 .workspace {
   display: grid;
   grid-template-columns: 248px minmax(520px, 1fr) 294px;
+  margin: 0 auto;
+  max-width: 1600px;
   min-height: calc(100vh - 40px);
 }
 
@@ -537,7 +590,8 @@ a {
 }
 
 .trend-card:hover {
-  transform: translate(-2px, -2px);
+  box-shadow: 10px 10px 0 var(--ink);
+  transform: translate(-4px, -4px);
 }
 
 .trend-poster {
@@ -616,7 +670,7 @@ a {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 20px 22px;
+  padding: 24px 28px;
 }
 
 .trend-meta {
@@ -1049,11 +1103,12 @@ a {
 .diagnosis-box {
   background: var(--lavender);
   border: var(--border);
+  box-shadow: 5px 5px 0 var(--ink);
   display: grid;
   gap: 14px;
   grid-template-columns: 122px 1fr;
   margin-top: 20px;
-  padding: 15px;
+  padding: 20px;
 }
 
 .diagnosis-label {
@@ -1100,10 +1155,15 @@ a {
 }
 
 .direction-tabs {
+  background: var(--paper);
   display: grid;
   gap: 7px;
   grid-template-columns: repeat(3, 1fr);
-  margin-bottom: 12px;
+  margin-bottom: 0;
+  padding: 10px 0 15px;
+  position: sticky;
+  top: 114px;
+  z-index: 15;
 }
 
 .direction-tabs button {
@@ -1149,6 +1209,12 @@ a {
   box-shadow: 5px 5px 0 var(--ink);
   min-width: 0;
   padding: 15px;
+  transition: transform 0.2s ease;
+}
+
+.output-block:hover {
+  box-shadow: 7px 7px 0 var(--ink);
+  transform: translate(-2px, -2px);
 }
 
 .output-heading {
@@ -1464,15 +1530,23 @@ a {
 
   .steps {
     border-top: var(--border);
-    display: grid;
-    grid-template-columns: repeat(5, minmax(130px, 1fr));
+    display: flex;
+    gap: 10px;
     overflow-x: auto;
-    padding: 11px;
+    padding: 15px 11px;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+
+  .steps::-webkit-scrollbar {
+    display: none;
   }
 
   .step {
+    flex: 0 0 160px;
     grid-template-columns: 22px 17px 1fr;
     min-width: 145px;
+    scroll-snap-align: start;
   }
 
   .step-arrow {
@@ -1519,11 +1593,6 @@ a {
 
   .ticker-track {
     gap: 10px;
-  }
-
-  .ticker-track span:nth-of-type(n + 3),
-  .ticker-track svg:nth-of-type(n + 3) {
-    display: none;
   }
 
   .ticker-date {

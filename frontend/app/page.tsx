@@ -664,6 +664,13 @@ export default function Home() {
           <span>BYOK READY</span>
           <CircleDot size={13} fill="currentColor" />
           <span>AI CONTENT STUDIO</span>
+          <span aria-hidden="true">LIVE SIGNAL</span>
+          <CircleDot aria-hidden="true" size={13} fill="currentColor" />
+          <span aria-hidden="true">TENCENT TOKENHUB WEB SEARCH</span>
+          <CircleDot aria-hidden="true" size={13} fill="currentColor" />
+          <span aria-hidden="true">BYOK READY</span>
+          <CircleDot aria-hidden="true" size={13} fill="currentColor" />
+          <span aria-hidden="true">AI CONTENT STUDIO</span>
         </div>
         <div className="ticker-date">
           {scanDate ? `SCAN ${scanDate}` : "READY TO SCAN"}
