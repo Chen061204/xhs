@@ -411,6 +411,31 @@ a {
   min-width: 164px;
 }
 
+.hero-actions {
+  align-items: stretch;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.force-refresh-action {
+  align-items: center;
+  align-self: flex-end;
+  background: var(--white);
+  border: 2px solid var(--ink);
+  display: flex;
+  font-size: 10px;
+  font-weight: 900;
+  gap: 6px;
+  justify-content: center;
+  padding: 8px 10px;
+}
+
+.force-refresh-action:hover {
+  background: var(--yellow);
+}
+
 .primary-action:hover,
 .settings-scan-button:hover,
 .analyze-button:hover {
@@ -1541,6 +1566,12 @@ a {
   }
 
   .primary-action {
+    width: 100%;
+  }
+
+  .hero-actions,
+  .force-refresh-action {
+    align-self: stretch;
     width: 100%;
   }
 

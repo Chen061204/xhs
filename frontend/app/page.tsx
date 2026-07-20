@@ -491,6 +491,7 @@ export default function Home() {
   }
 
   async function scanTrends(nextCategory = category) {
+    if (!storageReady || loadingTrends) return;
     setError(null);
     setLoadingTrends(true);
     setCategory(nextCategory);
@@ -523,7 +524,7 @@ export default function Home() {
   }
 
   function chooseCategory(nextCategory: string) {
-    if (loadingTrends) return;
+    if (!storageReady || loadingTrends) return;
     const cached = trendCache[nextCategory];
     if (cached) {
       if (nextCategory === category) return;
@@ -532,6 +533,18 @@ export default function Home() {
       return;
     }
     void scanTrends(nextCategory);
+  }
+
+  function openCachedTrends() {
+    const cached = trendCache[category];
+    if (!cached) return;
+    showCachedResult(category, cached);
+    persistTrendCache(category, trendCache);
+    window.setTimeout(() => {
+      document
+        .getElementById("saved-trend-list")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   }
 
   function goToWorkflowSection(section: WorkflowSection) {
@@ -622,6 +635,7 @@ export default function Home() {
 
   const currentDirection = analysis?.derived_directions[activeDirection];
   const hasSavedResult = cacheSavedAt !== null;
+  const hasCachedCategory = hasSavedResult && Boolean(trendCache[category]);
   const cacheTimeLabel = cacheSavedAt
     ? new Date(cacheSavedAt).toLocaleString("zh-CN", {
         month: "2-digit",
@@ -726,7 +740,7 @@ export default function Home() {
                   key={item}
                   className={category === item ? "category-active" : ""}
                   onClick={() => chooseCategory(item)}
-                  disabled={loadingTrends}
+                  disabled={!storageReady || loadingTrends}
                   aria-pressed={category === item}
                 >
                   {item === "今日总榜" && <Flame size={16} fill="currentColor" />}
@@ -773,19 +787,52 @@ export default function Home() {
                     搜索最新公开网页，从实时信号中提炼有辨识度的创作方向。
                   </p>
                 </div>
-                <button
-                  className="primary-action"
-                  type="button"
-                  onClick={() => scanTrends()}
-                  disabled={loadingTrends}
-                >
-                  {loadingTrends ? (
-                    <LoaderCircle className="spin" size={21} strokeWidth={3} />
+                <div className="hero-actions">
+                  {hasCachedCategory ? (
+                    <>
+                      <button
+                        className="primary-action"
+                        type="button"
+                        onClick={openCachedTrends}
+                        disabled={loadingTrends}
+                      >
+                        <Archive size={20} strokeWidth={3} />
+                        查看已保存热点
+                      </button>
+                      <button
+                        className="force-refresh-action"
+                        type="button"
+                        onClick={() => scanTrends()}
+                        disabled={loadingTrends}
+                      >
+                        {loadingTrends ? (
+                          <LoaderCircle className="spin" size={18} strokeWidth={3} />
+                        ) : (
+                          <RefreshCw size={18} strokeWidth={3} />
+                        )}
+                        {loadingTrends ? "正在联网搜索…" : "重新联网扫描"}
+                      </button>
+                    </>
                   ) : (
-                    <RefreshCw size={20} strokeWidth={3} />
+                    <button
+                      className="primary-action"
+                      type="button"
+                      onClick={() => scanTrends()}
+                      disabled={!storageReady || loadingTrends}
+                    >
+                      {!storageReady || loadingTrends ? (
+                        <LoaderCircle className="spin" size={21} strokeWidth={3} />
+                      ) : (
+                        <RefreshCw size={20} strokeWidth={3} />
+                      )}
+                      {!storageReady
+                        ? "正在恢复缓存…"
+                        : loadingTrends
+                          ? "正在联网搜索…"
+                          : "扫描联网热点"}
+                    </button>
                   )}
-                  {loadingTrends ? "正在联网搜索…" : "扫描联网热点"}
-                </button>
+                </div>
               </section>
 
               <div className="data-notice">
@@ -798,7 +845,11 @@ export default function Home() {
                 </p>
               </div>
 
-              <section className="trend-list" aria-label="热点列表">
+              <section
+                className="trend-list"
+                id="saved-trend-list"
+                aria-label="热点列表"
+              >
                 {trends.length === 0 ? (
                   <div className="empty-trends">
                     <Radar size={46} strokeWidth={2.6} />
@@ -1172,14 +1223,20 @@ export default function Home() {
               className="settings-scan-button"
               type="button"
               onClick={() => scanTrends()}
-              disabled={loadingTrends}
+              disabled={!storageReady || loadingTrends}
             >
               {loadingTrends ? (
                 <LoaderCircle className="spin" size={20} />
               ) : (
                 <Radar size={20} strokeWidth={3} />
               )}
-              {loadingTrends ? "联网搜索中" : "扫描联网热点"}
+              {!storageReady
+                ? "恢复缓存中"
+                : loadingTrends
+                  ? "联网搜索中"
+                  : hasCachedCategory
+                    ? "重新联网扫描"
+                    : "扫描联网热点"}
             </button>
 
             <div className="source-note">
