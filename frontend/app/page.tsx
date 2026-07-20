@@ -43,6 +43,7 @@ import {
 
 const CATEGORIES = ["今日总榜", "美妆穿搭", "生活方式", "职场成长", "旅行美食"];
 const TREND_CACHE_KEY = "xhs-trending-cache-v2";
+const ANALYSIS_CACHE_KEY = "xhs-analysis-cache-v1";
 const EMPTY_TRENDS_MESSAGE =
   "尚未扫描联网热点。首次扫描后，结果会自动保存在当前浏览器。";
 
@@ -85,6 +86,16 @@ type TrendCache = {
   version: 2;
   activeCategory: string;
   results: Record<string, CachedTrendResult>;
+};
+
+type AnalysisCache = {
+  version: 1;
+  selectedTrend: TrendingItem;
+  analysis: AnalyzeResponse;
+  activeDirection: number;
+  view: ViewState;
+  activeSection: WorkflowSection;
+  savedAt: string;
 };
 
 function isStringArray(value: unknown): value is string[] {
@@ -140,6 +151,55 @@ function isTrendCache(value: unknown): value is TrendCache {
   );
 }
 
+function isAnalyzeResponse(value: unknown): value is AnalyzeResponse {
+  if (!value || typeof value !== "object") return false;
+  const result = value as Partial<AnalyzeResponse>;
+  const originalPost = result.original_post;
+  return (
+    Boolean(originalPost) &&
+    typeof originalPost?.title === "string" &&
+    typeof originalPost.metrics === "string" &&
+    typeof result.ai_diagnosis === "string" &&
+    Array.isArray(result.derived_directions) &&
+    result.derived_directions.length === 3 &&
+    result.derived_directions.every(
+      (direction) =>
+        direction &&
+        typeof direction === "object" &&
+        typeof direction.direction_title === "string" &&
+        Array.isArray(direction.xiaohongshu_titles) &&
+        direction.xiaohongshu_titles.length === 3 &&
+        direction.xiaohongshu_titles.every((title) => typeof title === "string") &&
+        typeof direction.copywriting === "string" &&
+        typeof direction.image_prompt === "string" &&
+        typeof direction.video_prompt === "string",
+    )
+  );
+}
+
+function isAnalysisCache(value: unknown): value is AnalysisCache {
+  if (!value || typeof value !== "object") return false;
+  const cache = value as Partial<AnalysisCache>;
+  const validSection =
+    cache.activeSection === "radar" ||
+    cache.activeSection === "diagnosis" ||
+    cache.activeSection === "directions" ||
+    cache.activeSection === "copywriting" ||
+    cache.activeSection === "prompts";
+  return (
+    cache.version === 1 &&
+    isTrendingItem(cache.selectedTrend) &&
+    isAnalyzeResponse(cache.analysis) &&
+    Number.isInteger(cache.activeDirection) &&
+    Number(cache.activeDirection) >= 0 &&
+    Number(cache.activeDirection) < 3 &&
+    (cache.view === "radar" || cache.view === "analysis") &&
+    validSection &&
+    typeof cache.savedAt === "string" &&
+    Number.isFinite(Date.parse(cache.savedAt))
+  );
+}
+
 function CopyButton({ text, label = "复制" }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -177,6 +237,7 @@ export default function Home() {
   const [analyzingRank, setAnalyzingRank] = useState<number | null>(null);
   const [selectedTrend, setSelectedTrend] = useState<TrendingItem | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
+  const [analysisSavedAt, setAnalysisSavedAt] = useState<string | null>(null);
   const [activeDirection, setActiveDirection] = useState(0);
   const [view, setView] = useState<ViewState>("radar");
   const [activeSection, setActiveSection] =
@@ -184,6 +245,7 @@ export default function Home() {
   const [error, setError] = useState<{ code: string; message: string } | null>(
     null,
   );
+  const [storageReady, setStorageReady] = useState(false);
 
   useEffect(() => {
     const storedBase = window.localStorage.getItem("xhs-api-base");
@@ -192,6 +254,7 @@ export default function Home() {
       "xhs-tokenhub-model",
     ) as DeepSeekModel | null;
     const storedTrends = window.localStorage.getItem(TREND_CACHE_KEY);
+    const storedAnalysis = window.localStorage.getItem(ANALYSIS_CACHE_KEY);
 
     if (storedBase) setApiBase(storedBase);
     if (storedKey) setApiKey(storedKey);
@@ -221,6 +284,24 @@ export default function Home() {
         window.localStorage.removeItem(TREND_CACHE_KEY);
       }
     }
+    if (storedAnalysis) {
+      try {
+        const cache: unknown = JSON.parse(storedAnalysis);
+        if (isAnalysisCache(cache)) {
+          setSelectedTrend(cache.selectedTrend);
+          setAnalysis(cache.analysis);
+          setAnalysisSavedAt(cache.savedAt);
+          setActiveDirection(cache.activeDirection);
+          setView(cache.view);
+          setActiveSection(cache.activeSection);
+        } else {
+          window.localStorage.removeItem(ANALYSIS_CACHE_KEY);
+        }
+      } catch {
+        window.localStorage.removeItem(ANALYSIS_CACHE_KEY);
+      }
+    }
+    setStorageReady(true);
   }, []);
 
   useEffect(() => {
@@ -228,6 +309,39 @@ export default function Home() {
     window.localStorage.setItem("xhs-tokenhub-key", apiKey);
     window.localStorage.setItem("xhs-tokenhub-model", model);
   }, [apiBase, apiKey, model]);
+
+  useEffect(() => {
+    if (
+      !storageReady ||
+      !selectedTrend ||
+      !analysis ||
+      !analysisSavedAt
+    ) {
+      return;
+    }
+    const cache: AnalysisCache = {
+      version: 1,
+      selectedTrend,
+      analysis,
+      activeDirection,
+      view,
+      activeSection,
+      savedAt: analysisSavedAt,
+    };
+    try {
+      window.localStorage.setItem(ANALYSIS_CACHE_KEY, JSON.stringify(cache));
+    } catch {
+      // Keep the live result usable when browser storage is unavailable.
+    }
+  }, [
+    activeDirection,
+    activeSection,
+    analysis,
+    analysisSavedAt,
+    selectedTrend,
+    storageReady,
+    view,
+  ]);
 
   useEffect(() => {
     if (!apiBase.trim()) {
@@ -357,8 +471,10 @@ export default function Home() {
     setAnalyzingRank(trend.rank);
     try {
       const result = await analyzeHotspot(apiOptions, trend);
+      const savedAt = new Date().toISOString();
       setSelectedTrend(trend);
       setAnalysis(result);
+      setAnalysisSavedAt(savedAt);
       setActiveDirection(0);
       setView("analysis");
       setActiveSection("diagnosis");
@@ -378,6 +494,14 @@ export default function Home() {
   const hasSavedResult = cacheSavedAt !== null;
   const cacheTimeLabel = cacheSavedAt
     ? new Date(cacheSavedAt).toLocaleString("zh-CN", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+  const analysisTimeLabel = analysisSavedAt
+    ? new Date(analysisSavedAt).toLocaleString("zh-CN", {
         month: "2-digit",
         day: "2-digit",
         hour: "2-digit",
@@ -626,6 +750,12 @@ export default function Home() {
                     <div className="analysis-index">DIAGNOSIS / 01</div>
                     <div className="analysis-title-row">
                       <div>
+                        {analysisTimeLabel && (
+                          <div className="analysis-save-status" role="status">
+                            <Check size={14} strokeWidth={3} />
+                            LOCAL SAVED · {analysisTimeLabel}
+                          </div>
+                        )}
                         <p className="eyebrow">SELECTED SIGNAL</p>
                         <h2>{analysis.original_post.title}</h2>
                       </div>

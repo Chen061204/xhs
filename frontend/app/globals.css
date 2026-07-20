@@ -962,6 +962,19 @@ a {
   top: 15px;
 }
 
+.analysis-save-status {
+  align-items: center;
+  background: #d9ffe3;
+  border: 2px solid var(--ink);
+  display: inline-flex;
+  font-family: "Arial Black", sans-serif;
+  font-size: 9px;
+  gap: 5px;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+  padding: 5px 7px;
+}
+
 .analysis-title-row {
   align-items: flex-start;
   display: flex;
